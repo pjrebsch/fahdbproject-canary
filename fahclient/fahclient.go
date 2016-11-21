@@ -7,7 +7,6 @@ import (
   "bytes"
   "log"
   "os"
-  "syscall"
 )
 
 const (
@@ -16,8 +15,8 @@ const (
   greeting string = "Welcome to the Folding@home Client command server.\n> "
 )
 
-func secDuration(secs uint8) time.Duration {
-  return time.Second * time.Duration(secs)
+func calculateWait(x int) int {
+  return (x * x) + (2 * x) + 2
 }
 
 type Conn struct {
@@ -29,34 +28,43 @@ func DoesContainGreeting(response []byte) bool {
   return bytes.Contains(response, []byte(greeting))
 }
 
-func Connect(addr string, tmout uint8) (*Conn, error) {
-  logger := log.New(os.Stdout, addr+" -- ", log.LstdFlags | log.Lmicroseconds)
+func Connect(addr string, secs uint8) *Conn {
+  timeout := time.Duration(secs) * time.Second
+  logger := log.New(os.Stdout, addr+" ", log.LstdFlags | log.Lmicroseconds)
 
-  netconn, err := net.DialTimeout("tcp", addr, secDuration(tmout))
-  if err != nil {
-    if netOpError, ok := err.(*net.OpError); ok {
-      if osSyscallError, ok := netOpError.Err.(*os.SyscallError); ok {
-        if syscallErrno, ok := osSyscallError.Err.(syscall.Errno); ok {
-          switch syscallErrno {
-          case syscall.ECONNREFUSED:
-            logger.Fatalf("[FATAL] The connection to the client was refused!\n")
-          default:
-            logFatalUnknownErr("syscall.Errno", syscallErrno)
+  var netconn net.Conn
+  var err error
+
+  for i := 1; ; i++ {
+    netconn, err = net.DialTimeout("tcp", addr, timeout)
+    if err != nil {
+      logger.Printf("[ERROR] Error on connection attempt #%d: %s\n", i, err)
+
+      if netOpError, ok := err.(*net.OpError); ok {
+        if netOpError.Temporary() {
+          if i < 5 {
+            wait := calculateWait(i-1)
+            logger.Printf("[INFO] Retrying in %d seconds...\n", wait)
+            time.Sleep(time.Duration(wait) * time.Second)
+            continue
           }
-        } else {
-          logFatalUnknownErr("*os.SyscallError", osSyscallError)
         }
-      } else {
-        logFatalUnknownErr("*net.OpError", netOpError)
       }
-    } else {
-      logFatalUnknownErr("error", err)
-    }
 
-    return nil, err
+      // Don't display this if retrying wasn't going to happen anyway.
+      if i > 1 {
+        logger.Println("[INFO] Giving up on retries!")
+      }
+    }
+    break
   }
 
-  return &Conn{netconn, logger}, nil
+  if err != nil {
+    fatalInspectError(err, logger)
+    return nil
+  }
+
+  return &Conn{netconn, logger}
 }
 
 func (c *Conn) Shutdown() {
