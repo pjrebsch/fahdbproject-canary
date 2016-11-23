@@ -4,9 +4,9 @@ package fahclient
 import (
   "time"
   "net"
-  "bytes"
   "log"
-  "os"
+  "bytes"
+  "encoding/hex"
 )
 
 const (
@@ -21,16 +21,10 @@ func calculateWait(x int) int {
 
 type Conn struct {
   net.Conn
-  Logger *log.Logger
 }
 
-func DoesContainGreeting(response []byte) bool {
-  return bytes.Contains(response, []byte(greeting))
-}
-
-func Connect(addr string, secs uint8) *Conn {
+func Connect(addr string, secs uint8) (*Conn, error) {
   timeout := time.Duration(secs) * time.Second
-  logger := log.New(os.Stdout, addr+" ", log.LstdFlags | log.Lmicroseconds)
 
   var netconn net.Conn
   var err error
@@ -38,33 +32,31 @@ func Connect(addr string, secs uint8) *Conn {
   for i := 1; ; i++ {
     netconn, err = net.DialTimeout("tcp", addr, timeout)
     if err != nil {
-      logger.Printf("[ERROR] Error on connection attempt #%d: %s\n", i, err)
+      log.Printf("[ERROR] Error on connection attempt #%d: %s\n", i, err)
 
       if netOpError, ok := err.(*net.OpError); ok {
         if netOpError.Temporary() {
           if i < 5 {
             wait := calculateWait(i-1)
-            logger.Printf("[INFO] Retrying in %d seconds...\n", wait)
+            log.Printf("[INFO] Retrying in %d seconds...\n", wait)
             time.Sleep(time.Duration(wait) * time.Second)
             continue
           }
         }
       }
 
-      // Don't display this if retrying wasn't going to happen anyway.
+      // Don't display this if we weren't retrying.
       if i > 1 {
-        logger.Println("[INFO] Giving up on retries!")
+        log.Println("[INFO] Giving up on retries!")
       }
     }
     break
   }
 
   if err != nil {
-    fatalInspectError(err, logger)
-    return nil
+    return nil, err
   }
-
-  return &Conn{netconn, logger}
+  return &Conn{netconn}, nil
 }
 
 func (c *Conn) Shutdown() {
@@ -73,9 +65,31 @@ func (c *Conn) Shutdown() {
 
 func (c *Conn) ReadClient(bufSize uint16) ([]byte, error) {
   buf := make([]byte, bufSize)
+  err := c.SetReadDeadline(time.Now().Add(5 * time.Second))
+  // err := c.SetReadDeadline(time.Now())
+  if err != nil {
+    panic(err)
+  }
+
   length, err := c.Read(buf)
   if err != nil {
+    panic(err)
     return nil, nil
   }
   return buf[:length], nil
+}
+
+func (c *Conn) ReadForGreeting() {
+  response, err := c.ReadClient(256)
+  if err != nil {
+    panic(err)
+  }
+
+  if !bytes.Contains(response, []byte(greeting)) {
+    log.Fatalln(
+      "[FATAL] Don't know how to handle FAHClient response:",
+      hex.EncodeToString(response),
+    )
+  }
+  log.Println("[INFO] Received FAHClient Greeting.")
 }
