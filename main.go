@@ -8,6 +8,7 @@ import (
   "sync"
   "bytes"
   "encoding/hex"
+  "fmt"
 )
 
 // "Flag" struct for signaling that the application should exit
@@ -83,10 +84,11 @@ func connectToFAHClient(wg *sync.WaitGroup, errors chan<- error) {
   }
 
   if !bytes.Contains(response, []byte(fahclient.Greeting)) {
-    log.Fatalln(
-      "[FATAL] Don't know how to handle FAHClient response:",
+    errors <- fmt.Errorf(
+      "Don't know how to handle FAHClient response: ",
       hex.EncodeToString(response),
     )
+    return
   }
   log.Println("[INFO] Received FAHClient Greeting.")
 
