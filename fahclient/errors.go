@@ -8,6 +8,14 @@ import (
   "os"
 )
 
+type Error struct {
+  Err error
+}
+
+func (e Error) Error() string {
+  return e.Err.Error()
+}
+
 func logFatalUnknownErr(errType string, err error) {
   log.Fatalf(
     "[FATAL] Don't know how to handle %v (%T): %v\n",
@@ -17,7 +25,10 @@ func logFatalUnknownErr(errType string, err error) {
   )
 }
 
-func InspectError(err error) {
+func InspectError(origErr Error) {
+  // Extract the real error from the custom error.
+  err, _ := origErr.Err.(error)
+
   if netOpError, ok := err.(*net.OpError); ok {
     if osSyscallError, ok := netOpError.Err.(*os.SyscallError); ok {
       if syscallErrno, ok := osSyscallError.Err.(syscall.Errno); ok {
