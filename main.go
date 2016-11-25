@@ -6,46 +6,48 @@ import (
   "os"
   "log"
   "sync"
-  "errors"
   "bytes"
   "encoding/hex"
 )
 
-// Flag for signaling that the application should exit due to
-// either an unrecoverable error or the user's request.
-var pleaseDie bool = false
+// "Flag" struct for signaling that the application should exit
+// due to either the user's request or an unrecoverable error.
+//
+// We opt to use a global variable and mutex here because it
+// is simply easier to implement than trying to work with a
+// channel.
+var death struct {
+  sync.Mutex
+  effective bool
+}
 
 func main() {
-  // Set up logging. If there is a problem creating the log file, just use
-  // stdout.
   f, err := os.OpenFile("log.txt", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0644)
   if err != nil {
     // If there was a problem, set up our logging preferences with STDOUT
     // then exit after logging the error message.
     setUpLogging(os.Stdout)
-    log.Fatalf("[FATAL] Error opening log file: %s\n", err)
+    log.Fatalf("[FATAL] Error opening log file: %s\n\n", err)
   }
-  defer closeLogging(f)
   setUpLogging(f)
+  defer closeLogging(f)
 
   var wg sync.WaitGroup
-  quitChan := make(chan struct{})
-  errChan := make(chan error)
+  errors := make(chan error, 10)
 
-  wg.Add(1); go connectToFAHClient(&wg, quitChan, errChan)
+  wg.Add(1); go connectToFAHClient(&wg, errors)
 
-  // Waits for a goroutine to signal that the application should exit.
-  waitForExitSignal(errChan)
-
-  // Will signal to any unfinished goroutines that they should
-  // exit cleanly.
-  close(quitChan)
-
-  // Wait for those goroutines to finish if they aren't already.
+  // Wait for those goroutines to finish.
   wg.Wait()
 
-  // Clean up.
-  close(errChan)
+  // Now that there are no more goroutines sending errors, close
+  // the channel (otherwise the range will block below).
+  close(errors)
+
+  // Log all unrecoverable errors returned by the goroutines.
+  for err = range errors {
+    log.Printf("[FATAL] %s\n", err)
+  }
 }
 
 func setUpLogging(f *os.File) {
@@ -60,73 +62,39 @@ func closeLogging(f *os.File) {
   f.Close()
 }
 
-func waitForExitSignal(errChan <-chan error) {
-  for {
-    select {
-    case err := <-errChan:
-      if e, ok := err.(fahclient.Error); ok {
-        fahclient.InspectError(e)
-      } else if err.Error() == "Exiting gracefully." {
-        log.Printf("[EXIT] %s\n", err)
-      } else {
-        log.Printf("[FATAL] Unexpected error occurred: %s\n", err)
-      }
-      return
-    }
+func connectToFAHClient(wg *sync.WaitGroup, errors chan<- error) {
+  defer wg.Done()
+  defer signalDeath()
+
+  conn, err := fahclient.Connect("127.0.0.1:36330", 2)
+  if err != nil {
+    errors <- err
+    return
   }
+  defer conn.Shutdown()
+  log.Println("[INFO] Connected to FAHClient.")
+
+  if death.effective { return }
+
+  response, err := conn.ReadClient(256)
+  if err != nil {
+    errors <- err
+    return
+  }
+
+  if !bytes.Contains(response, []byte(fahclient.Greeting)) {
+    log.Fatalln(
+      "[FATAL] Don't know how to handle FAHClient response:",
+      hex.EncodeToString(response),
+    )
+  }
+  log.Println("[INFO] Received FAHClient Greeting.")
+
+  return
 }
 
-func connectToFAHClient(wg *sync.WaitGroup,
-                        q <-chan struct{},
-                        e chan<- error) {
-  defer wg.Done()
-
-  var stage string = "connect to client"
-
-  var conn *fahclient.Conn
-  var err error
-
-  for {
-    select {
-    case <-q:
-      return
-    default:
-      switch stage {
-      case "connect to client":
-        conn, err = fahclient.Connect("127.0.0.1:36330", 2)
-        if err != nil {
-          goto returnError
-        }
-        defer conn.Shutdown()
-
-        log.Println("[INFO] Connected to FAHClient.")
-
-        stage = "read client greeting"
-
-      case "read client greeting":
-        var response []byte
-        response, err = conn.ReadClient(256)
-        if err != nil {
-          goto returnError
-        }
-
-        if !bytes.Contains(response, []byte(fahclient.Greeting)) {
-          log.Fatalln(
-            "[FATAL] Don't know how to handle FAHClient response:",
-            hex.EncodeToString(response),
-          )
-        }
-        log.Println("[INFO] Received FAHClient Greeting.")
-
-        stage = "exit"
-
-      case "exit":
-        e <- errors.New("Exiting gracefully.")
-        return
-      }
-    }
-  }
-returnError:
-  e <- err
-  return
+func signalDeath() {
+  death.Lock()
+  death.effective = true
+  death.Unlock()
 }

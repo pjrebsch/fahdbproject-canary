@@ -52,7 +52,7 @@ func Connect(addr string, secs uint8) (*Conn, error) {
   }
 
   if err != nil {
-    return nil, err
+    return nil, TranslateConnectionError(err)
   }
   return &Conn{netconn}, nil
 }
@@ -64,7 +64,6 @@ func (c *Conn) Shutdown() {
 func (c *Conn) ReadClient(bufSize uint16) ([]byte, error) {
   buf := make([]byte, bufSize)
   err := c.SetReadDeadline(time.Now().Add(5 * time.Second))
-  // err := c.SetReadDeadline(time.Now())
   if err != nil {
     return nil, err
   }
