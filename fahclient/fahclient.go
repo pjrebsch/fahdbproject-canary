@@ -5,14 +5,12 @@ import (
   "time"
   "net"
   "log"
-  "bytes"
-  "encoding/hex"
 )
 
 const (
   // Expected telnet greeting from the FAHClient that lets
   // us know that it's ready for communication.
-  greeting string = "Welcome to the Folding@home Client command server.\n> "
+  Greeting string = "Welcome to the Folding@home Client command server.\n> "
 )
 
 func calculateWait(x int) int {
@@ -54,7 +52,7 @@ func Connect(addr string, secs uint8) (*Conn, error) {
   }
 
   if err != nil {
-    return nil, err
+    return nil, TranslateConnectionError(err)
   }
   return &Conn{netconn}, nil
 }
@@ -66,30 +64,13 @@ func (c *Conn) Shutdown() {
 func (c *Conn) ReadClient(bufSize uint16) ([]byte, error) {
   buf := make([]byte, bufSize)
   err := c.SetReadDeadline(time.Now().Add(5 * time.Second))
-  // err := c.SetReadDeadline(time.Now())
   if err != nil {
-    panic(err)
+    return nil, err
   }
 
   length, err := c.Read(buf)
   if err != nil {
-    panic(err)
-    return nil, nil
+    return nil, err
   }
   return buf[:length], nil
-}
-
-func (c *Conn) ReadForGreeting() {
-  response, err := c.ReadClient(256)
-  if err != nil {
-    panic(err)
-  }
-
-  if !bytes.Contains(response, []byte(greeting)) {
-    log.Fatalln(
-      "[FATAL] Don't know how to handle FAHClient response:",
-      hex.EncodeToString(response),
-    )
-  }
-  log.Println("[INFO] Received FAHClient Greeting.")
 }

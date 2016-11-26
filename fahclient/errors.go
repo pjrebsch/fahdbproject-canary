@@ -2,44 +2,48 @@
 package fahclient
 
 import (
-  "log"
   "net"
   "syscall"
   "os"
+  "fmt"
 )
 
-func logFatalUnknownErr(errType string, err error) {
-  log.Fatalf(
-    "[FATAL] Don't know how to handle %v (%T): %v\n",
+func describeUnknownErr(errType string, err error) error {
+  return fmt.Errorf(
+    "Don't know how to handle %v (%T): %v",
     errType,
     err,
     err,
   )
 }
 
-func InspectError(err error) {
+func TranslateConnectionError(err error) error {
+  var newErr error
+
   if netOpError, ok := err.(*net.OpError); ok {
     if osSyscallError, ok := netOpError.Err.(*os.SyscallError); ok {
       if syscallErrno, ok := osSyscallError.Err.(syscall.Errno); ok {
         switch syscallErrno {
         case syscall.ECONNREFUSED:
-          log.Printf(
-            "[FATAL] The connection to the FAHClient was refused. "+
+          newErr = fmt.Errorf(
+            "The connection to the FAHClient was refused. "+
             "Please ensure that the FAHClient is running on the "+
             "host and port %s and that the port is not being blocked "+
-            "by a firewall.\n",
+            "by a firewall.",
             netOpError.Addr.String(),
           )
         default:
-          logFatalUnknownErr("syscall.Errno", syscallErrno)
+          newErr = describeUnknownErr("syscall.Errno", syscallErrno)
         }
       } else {
-        logFatalUnknownErr("*os.SyscallError", osSyscallError)
+        newErr = describeUnknownErr("*os.SyscallError", osSyscallError)
       }
     } else {
-      logFatalUnknownErr("*net.OpError", netOpError)
+      newErr = describeUnknownErr("*net.OpError", netOpError)
     }
   } else {
-    logFatalUnknownErr("error", err)
+    newErr = describeUnknownErr("error", err)
   }
+
+  return newErr
 }
