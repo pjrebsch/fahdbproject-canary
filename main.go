@@ -40,7 +40,10 @@ func main() {
     err := loadConfig()
     if err != nil {
       if os.IsNotExist(err) {
-        // Create the config file with default values.
+        log.Println(
+          "[INFO] No config file found. " +
+          "Creating one with default config values...",
+        )
         err = writeConfig(DefaultConfig)
         if err != nil {
           log.Fatalf("[FATAL] Error writing config file: %s\n\n", err)
