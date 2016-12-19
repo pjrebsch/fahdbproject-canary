@@ -85,7 +85,8 @@ some details about the sysfs device directory layout.)
 Graphics devices are identified by reading the `class` file in each device
 directory located at `/sys/bus/pci/devices/` and collecting the PCI bus
 addresses for each device with a class matching `0x0300__` (the "display
-controller" PCI device class)<sup>http://wiki.xomb.org/index.php?title=PCI_Class_Codes</sup>.
+controller" PCI device class). (See http://wiki.xomb.org/index.php?title=PCI_Class_Codes
+for info about PCI device classes.)
 
 Then with the list of PCI bus addresses in ascending order, we can map
 them to the GPU index that is reported by the FAHClient.
